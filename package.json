@@ -3,6 +3,10 @@
 	"displayName": "X4CodeComplete",
 	"description": "",
 	"version": "0.0.1",
+	"repository": {
+		"type": "git",
+		"url":"https://github.com/Cgettys/X4CodeComplete"
+	},
 	"publisher":"CharlieGettys",
 	"engines": {
 		"vscode": "^1.33.0"
