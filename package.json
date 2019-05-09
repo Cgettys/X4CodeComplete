@@ -8,6 +8,7 @@
 		"url":"https://github.com/Cgettys/X4CodeComplete"
 	},
 	"publisher":"CharlieGettys",
+	"license": "GPL-3.0",
 	"engines": {
 		"vscode": "^1.33.0"
 	},
