@@ -212,12 +212,13 @@ function addItem(items:vscode.CompletionItem[], key: string, complete:string){
 }
 
 function findRelevantPortion(text: string){
-	let pos = Math.max(text.lastIndexOf("."), text.lastIndexOf('"'));
+	let pos = Math.max(text.lastIndexOf("."), text.lastIndexOf('"',text.length-2));
 	if (pos === -1){
 		return null;
 	}
-	let newToken = text.substr(pos + 1);
+	let newToken = text.substr(pos + 1, text.length - pos - 2);
 	let prevPos = Math.max(text.lastIndexOf(".", pos-1),text.lastIndexOf('"', pos-1));
+	// TODO something better
 	if (text.length - pos > 3 && prevPos === -1){
 		return ["", newToken];
 	}
@@ -325,14 +326,13 @@ export function activate(context: vscode.ExtensionContext) {
 				return locationDict[interesting];
 			}
 			// TODO combine this logic with similar used elsewhere
-			if (endA !== -1){
-				let parts = findRelevantPortion(line);
-				console.log(parts);
-				if (parts !== null){
-					let key = parts[0] + "." +parts[1];
-					if (key in locationDict){
-						return locationDict[key];
-					}
+			// TODO clean this up
+			let parts = findRelevantPortion(line);
+			console.log(parts);
+			if (parts !== null){
+				let key = parts[0] + "." +parts[1];
+				if (key in locationDict){
+					return locationDict[key];
 				}
 			}
 			return undefined;
