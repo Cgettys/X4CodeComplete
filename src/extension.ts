@@ -58,7 +58,7 @@ function addToSet(key:string, val:string){
 }
 
 function cleanStr(val: string){
-	return val.replace("[${}<>]","");
+	return val.replace("[${}<>]","").replace("<","&lt").replace(">","&gt");
 }
 
 interface ScriptProperty {
@@ -74,8 +74,12 @@ function addToLocationDict(name: string, file: string, start: vscode.Position, e
 	locationDict[name] = new vscode.Location(uri, range);
 }
 
+function escapeRegex(text: string){
+	//https://stackoverflow.com/a/6969486
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/</g,"\&lt;").replace(/>/g,"\&gt;");
+}
 function determineLocation(rawData: string,name: string, tagType: string){
-	let rawIdx = rawData.search("<"+tagType+" name=\""+ name+"\""+"[^>]*>");
+	let rawIdx = rawData.search("<"+tagType+" name=\""+ escapeRegex(name)+"\"[^>]*>");
 	// make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
 	let line = rawData.substr(0, rawIdx).split(/\r\n|\r|\n/).length-1;
 	let startIdx = Math.max(rawData.lastIndexOf("\n", rawIdx),rawData.lastIndexOf("\r", rawIdx));
@@ -85,13 +89,21 @@ function determineLocation(rawData: string,name: string, tagType: string){
 	addToLocationDict(name, scriptPropertiesPath, start, end);
 }
 function determinePropertyLocation(rawData: string, name:string, parent: string, parentType: string){
-	let rawIdx = rawData.search("(?:<"+parentType+" name=\""+ parent+"\""+"[^>]*>.*)(<property name =\""+name+"\"[^>]*>)");
+	//(?:<keyword name="player"[^>]*>[\s\S\r\n]*?)(<property name="exists"[^>]*>)(:?[\s\S\n\r]*?<\/keyword>)
+	let re = "(?:<"+parentType+" name=\""+ escapeRegex(parent)+"\"[^>]*>[\\s\\S\n]*?)(<property name=\""+escapeRegex(name) +"\"[^>]*>)(?:[\\s\\S\n]*?<\/"+parentType+">)";
+	let matches = rawData.match(re);
+	if (matches === null || matches.index === undefined){
+		console.log("strangely couldn't find property named:",name,"parent:",parent);
+		return;
+	}
+	let rawIdx = matches.index + matches[0].indexOf(matches[1]);
 	// make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
 	let line = rawData.substr(0, rawIdx).split(/\r\n|\r|\n/).length-1;
 	let startIdx = Math.max(rawData.lastIndexOf("\n", rawIdx),rawData.lastIndexOf("\r", rawIdx));
 	let start = new vscode.Position(line, rawIdx - startIdx);
 	let endIdx = rawData.indexOf(">", rawIdx)+2;
 	let end = new vscode.Position(line, endIdx - rawIdx);
+	console.log(rawData.sub)
 	addToLocationDict(parent+"."+name, scriptPropertiesPath, start, end);
 }
 
