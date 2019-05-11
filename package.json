@@ -32,7 +32,7 @@
         "x4CodeComplete.exceedinglyVerbose": {
           "type": "boolean",
           "default": false,
-          "description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else"
+          "description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else. May degrade performance significantly."
         }
       }
     }
