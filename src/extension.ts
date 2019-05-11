@@ -74,7 +74,7 @@ function processProperty(unique: CompletionDict, parent: string, prop:ScriptProp
 			if (exceedinglyVerbose){
 				console.log("\t\tPoorly handled for now: ", namePart);
 			}
-			addToSet(unique, last, namePart)
+			addToSet(unique, last, namePart);
 			last = namePart;
 		} else {
 			if (exceedinglyVerbose){
@@ -124,10 +124,18 @@ function processDatatype(unique: CompletionDict, e: Datatype){
 	e.property.forEach(prop => processProperty(unique, name, prop));
 }
 
+function buildResultsIfMatches(prevToken:string, newToken: string, key:string, data:CompletionDict, items: vscode.CompletionItem[]) {
+    // convenience method to hide the ugliness
+    if (!key.startsWith(newToken)) {
+        return;
+    }
+    buildResults(data, prevToken, key, items, 0);
+}
+
 function buildResults(data: CompletionDict, last:string, complete: string, items:vscode.CompletionItem[], depth:number){
 
 	if (exceedinglyVerbose){
-		console.log("Building results for: ", complete, "depth: ",depth, "last: ", last);
+		console.log("\tBuilding results for: ", complete, "depth: ",depth, "last: ", last);
 	}
 	addItem(items, last, complete);
 	if (complete === "" && depth > 0){
@@ -161,11 +169,22 @@ function addItem(items:vscode.CompletionItem[], key: string, complete:string){
 	if (complete === ""){
 		return;
 	}
-	if (exceedinglyVerbose){
-		console.log("CompletionItem:",complete);
-	}
 	let result = new vscode.CompletionItem(complete);
 	items.push(result);
+}
+
+function findRelevantPortion(text: string){
+	let pos = Math.max(text.lastIndexOf("."), text.lastIndexOf('"'));
+	if (pos === -1){
+		return null;
+	}
+	let newToken = text.substr(pos + 1);
+	let prevPos = Math.max(text.lastIndexOf(".", pos-1),text.lastIndexOf('"', pos-1));
+	if (text.length - pos > 3 && prevPos === -1){
+		return ["", newToken];
+	}
+	let prevToken = text.substr(prevPos + 1, pos-1);
+	return [prevToken, newToken];
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -195,31 +214,51 @@ export function activate(context: vscode.ExtensionContext) {
 			// and iff so then complete if `log`, `warn`, and `error`
 			
 			let items: vscode.CompletionItem[]= [];
-			if (position.character < config["minCharacters"]){
-				return items;
-			}
 			let prefix= document.lineAt(position).text.substr(0, position.character);
+			console.log(prefix);
+			let interesting = findRelevantPortion(prefix);
+			if (interesting === null){	
+				if (exceedinglyVerbose){
+					console.log("no relevant portion detected");
+				}
+				return new vscode.CompletionList(items,true);
+			}
+			let prevToken = interesting[0];
+			let newToken = interesting[1];
+			if (exceedinglyVerbose){
+				console.log("Previous token: ",interesting[0], " New token: ",interesting[1]);
+			}
+			// If we have a previous token & it's in the dictionary, only use that's entries
+			if (prevToken !== ""){
+				if (!(prevToken in data)) {
+					if (exceedinglyVerbose){
+						console.log("Missing previous token!");
+					}
+				} else {
+					let possibilities =  data[prevToken];
+					possibilities.forEach( possibleMatch => {
+						buildResultsIfMatches(prevToken,newToken, possibleMatch, data, items,);
+					});
+					return new vscode.CompletionList(items,true);
+				}
+			}
+			// Ignore tokens where all we have is a short string and no previous data to go off of
+			if (prevToken === "" && newToken.length < 2){
+				return new vscode.CompletionList(items,true);
+			}
 
-			let begin = prefix.lastIndexOf(".");
-			if (begin === -1){
-				begin = prefix.lastIndexOf(" ");
-			}
-			if (begin === -1){
-				begin = prefix.lastIndexOf("\t");
-			}
-			let interesting = prefix.substr(begin+1);
-			for (const possiblePartial in data) {
-				if (possiblePartial.indexOf(interesting)>-1){
-					buildResults(data, possiblePartial, possiblePartial,items, 0);
+			// Otherwise fall back to looking at keys of the dictionary for the new string
+			for (const key in data) {
+				if (key.startsWith(newToken)) {
+					buildResultsIfMatches(prevToken,newToken, key, data, items);
 				}
 			}
 
-
-			return items;
+			return new vscode.CompletionList(items,true);
 		}
 	};
 	
-	let disposable = vscode.languages.registerCompletionItemProvider(sel,provider);
+	let disposable = vscode.languages.registerCompletionItemProvider(sel,provider,".","\"");
 
 	context.subscriptions.push(disposable);
 }
