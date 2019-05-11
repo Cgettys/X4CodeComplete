@@ -2,6 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { print, TextDecoder } from 'util';
+import { type } from 'os';
 var fs = require('fs');
 var parser = require('xml2js');
 // this method is called when your extension is activated
@@ -27,104 +28,127 @@ function findRelevantPortion(text: string){
 	let prevToken = text.substr(prevPos + 1, pos-prevPos-1);
 	return [prevToken, newToken];
 }
-class Literal {
-	literal: string;
-	type?:string;
-	constructor(literal:string, type?:string){
-		this.literal = literal;
-		this.type = type;
-	}
-}
-class CompletionDictEntry {
-	literals:Set<Literal> = new Set<Literal>();
-	supertypes:Set<string> = new Set<string>();
-	addLiteral(value:string, type?:string){
-		this.literals.add(new Literal(value, type));
-	}
-	addSupertype(value: string){
-		this.supertypes.add(value);
+
+class TypeEntry {
+	properties:Map<string, string> = new Map<string, string>();
+	supertype?:string;
+	addProperty(value:string, type:string=""){
+		this.properties.set(value, type);
 	}
 }
 
 class CompletionDict implements vscode.CompletionItemProvider
 {
-	dict: Map<string,CompletionDictEntry> = new Map<string,CompletionDictEntry>();
-	addLiteral(key:string, val:string): void{
+	typeDict: Map<string,TypeEntry> = new Map<string,TypeEntry>();
+	addType(key:string, supertype?:string): void{
 		let k = cleanStr(key);
-		let v = cleanStr(val);
-		if (v in ["integer", "string", "float", ""]){
-			return;
-		}
-		var entry = this.dict.get(k);
+		var entry = this.typeDict.get(k);
 		if (entry === undefined) {
-			entry = new CompletionDictEntry();
-			this.dict.set(k, entry);
+			entry = new TypeEntry();
+			this.typeDict.set(k, entry);
 		}
-		entry.addLiteral(v);
+		entry.supertype=supertype;
 	}
-	addSupertype(key:string, val:string): void{
+
+	addTypeLiteral(key:string, val:string): void{
 		let k = cleanStr(key);
 		let v = cleanStr(val);
-		if (v in ["integer", "string", "float", ""]){
-			return;
-		}
-		var entry = this.dict.get(k);
+		var entry = this.typeDict.get(k);
 		if (entry === undefined) {
-			entry = new CompletionDictEntry();
-			this.dict.set(k, entry);
+			entry = new TypeEntry();
+			this.typeDict.set(k, entry);
 		}
-		entry.addSupertype(v);
+		entry.addProperty(v);
+	}
+
+	addProperty(key:string,prop:string, type?:string): void{
+		let k = cleanStr(key);
+		var entry = this.typeDict.get(k);
+		if (entry === undefined) {
+			entry = new TypeEntry();
+			this.typeDict.set(k, entry);
+		}
+		entry.addProperty(prop, type);
 	}
 
 
-	addItem(items:vscode.CompletionItem[], complete:string): void{
+	addItem(items: Map<string,vscode.CompletionItem>, complete:string, info?:string): void{
 		if (complete === ""){
 			return;
-		}
-		let result = new vscode.CompletionItem(complete);
-		items.push(result);
-	}	
-	
-	buildResultsIfMatches(prevToken:string, newToken: string, key:string, items: vscode.CompletionItem[]): void {
-		// convenience method to hide the ugliness
-		if (!key.startsWith(newToken)) {
+		}	
+
+		if (items.has(complete)){
+			if (exceedinglyVerbose){
+				console.log("\t\tSkipped existing completion: ",complete);
+			}
 			return;
 		}
-		this.buildResults(prevToken, key, items, 0);
+		if (exceedinglyVerbose){
+			console.log("\t\tAdded completion: "+complete);
+		}
+		
+		let result = new vscode.CompletionItem(complete);
+		if (info !== undefined){
+			result.detail = info+"."+complete;
+		} else {
+			result.detail = complete;
+		}
+		items.set(complete, result);
+	}		
+	buildProperty(prefix:string, typeName: string, propertyName: string, propertyType:string, items: Map<string,vscode.CompletionItem>, depth:number){
+		if (exceedinglyVerbose) {
+            console.log("Building Property", typeName+"."+propertyName,"depth: ", depth, "last: ", prefix);
+		}
+		let completion = prefix+"."+propertyName;
+		let specialPropMatches =propertyName.match(/{[$].*}/g)
+		if (specialPropMatches !== null){
+			let specialPropertyType = propertyName.substr(2,propertyName.length-3);
+
+		} else {
+			this.addItem(items, completion);
+			this.buildType(completion, propertyType, items, depth+1);
+		}
 	}
-	
-	buildResults(last:string, key: string, items:vscode.CompletionItem[], depth:number): void{
+	buildType(prefix:string, typeName: string, items: Map<string,vscode.CompletionItem>, depth:number): void{
 	
 		if (exceedinglyVerbose){
-			console.log("\tBuilding results for: ", key, "depth: ",depth, "last: ", last);
+			console.log("\tBuilding results for: ", typeName, "depth: ",depth, "last: ", prefix);
 		}
-		if (key === ""){
+		if (typeName === ""){
 			return;
 		} 
-		let entry = this.dict.get(key);
+		let entry = this.typeDict.get(typeName);
 		if (entry === undefined){
 			return;
 		}
-	
-		this.addItem(items, key);
-		if (depth > 3){
+		if (depth > -1){
+			this.addItem(items, typeName);
+		}
+		if (depth > 1){
+			if (exceedinglyVerbose){
+				console.log("\t\tMax depth reached, returning");
+			}
 			return;
 		}
+
 	
-		for (const literal in entry.literals) {
-			this.addItem(items, literal);
+		for (const prop of entry.properties.entries()) {
+			this.buildProperty(prefix, typeName, prop[0],prop[1], items, depth+1);
 		}
-		for (const supertype in entry.supertypes){
-			this.buildResults(last, supertype, items, depth + 1);
+		if (entry.supertype !==undefined){
+			if (exceedinglyVerbose){
+				console.log("Recursing on supertype: ", entry.supertype);
+			}
+			this.buildType(typeName, entry.supertype, items, depth + 1);
 		}
+	}
+	makeCompletionList(items:Map<string,vscode.CompletionItem>):
+	vscode.CompletionList{
+		return new vscode.CompletionList(Array.from(items.values()),true);
 	}
 
 	provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
-
-		// get all text until the `position` and check if it reads `console.`
-		// and iff so then complete if `log`, `warn`, and `error`
-		
-		let items: vscode.CompletionItem[]= [];
+		let items = new Map<string,vscode.CompletionItem>();
 		let prefix= document.lineAt(position).text.substr(0, position.character);
 		console.log(prefix);
 		let interesting = findRelevantPortion(prefix);
@@ -132,34 +156,49 @@ class CompletionDict implements vscode.CompletionItemProvider
 			if (exceedinglyVerbose){
 				console.log("no relevant portion detected");
 			}
-			return new vscode.CompletionList(items,true);
+			return this.makeCompletionList(items);
 		}
 		let prevToken = interesting[0];
 		let newToken = interesting[1];
 		if (exceedinglyVerbose){
 			console.log("Previous token: ",interesting[0], " New token: ",interesting[1]);
 		}
-		// If we have a previous token & it's in the dictionary, only use that's entries
+		// If we have a previous token & it's in the typeDictionary, only use that's entries
 		if (prevToken !== ""){
-			if (!(prevToken in this.dict.keys())) {
+
+			let entry = this.typeDict.get(prevToken);
+			if (entry===undefined) {
 				if (exceedinglyVerbose){
 					console.log("Missing previous token!");
 				}
 			} else {
-				this.buildResultsIfMatches(prevToken, newToken, prevToken, items);
-				return new vscode.CompletionList(items,true);
+				if (exceedinglyVerbose){
+					console.log("Matching on type!");
+				}
+				entry.properties.forEach(element => {
+					this.buildType(prevToken+".", element, items, 0);
+				});
+				return this.makeCompletionList(items);
 			}
 		}
 		// Ignore tokens where all we have is a short string and no previous data to go off of
 		if (prevToken === "" && newToken.length < 2){
-			return new vscode.CompletionList(items,true);
+			if (exceedinglyVerbose){
+				console.log("Ignoring short token without context!");
+			}
+			return this.makeCompletionList(items);
 		}
-
-		// Otherwise fall back to looking at keys of the dictionary for the new string
-		for (const key of this.dict.keys()) {
-			this.buildResultsIfMatches(prevToken,newToken, key, items);
+		if (exceedinglyVerbose){
+			console.log("Trying fallback");
 		}
-		return new vscode.CompletionList(items,true);
+		// Otherwise fall back to looking at keys of the typeDictionary for the new string
+		for (const key of this.typeDict.keys()) {
+			if (!key.startsWith(newToken)) {
+				continue;
+			}
+			this.buildType(newToken, key, items, 0);
+		}
+		return this.makeCompletionList(items);
 	}
 }
 	
@@ -254,8 +293,8 @@ function readScriptProperties(filepath: string){
 		for (let j = 0; j < datatypes.length; j++) {
 			processDatatype(rawData, datatypes[j]);
 		}
-		completionProvider.addLiteral("boolean","==true");
-		completionProvider.addLiteral("boolean","==false");
+		completionProvider.addTypeLiteral("boolean","==true");
+		completionProvider.addTypeLiteral("boolean","==false");
 		console.log("Parsed scriptproperties.xml");
 	});
 }
@@ -282,27 +321,8 @@ function processProperty(rawData: string, parent: string, parentType:string, pro
 		console.log("\tProperty read: ", name);
 	}
 	definitionProvider.addPropertyLocation(rawData, name, parent, parentType);
-	let splits = name.split(".");
-	var last: string = parent;
-	for (let i = 0; i < splits.length; i ++){
-		let namePart = splits[i];
-		if (namePart.match("[<>{}]")){
-			if (exceedinglyVerbose){
-				console.log("\t\tPoorly handled for now: ", namePart);
-			}
-			completionProvider.addLiteral(last, namePart);
-			last = namePart;
-		} else {
-			if (exceedinglyVerbose){
-				console.log("\t\tEntry: ("+last + ", "+ namePart+")");
-			}
-			completionProvider.addLiteral(last, namePart);
-			last = namePart;
-		}
-		if (prop.$.type !== undefined) {
-			completionProvider.addSupertype(last, prop.$.type);
-		}
-	}
+	completionProvider.addProperty(parent, name, prop.$.type);
+			
 }
 
 interface Keyword{
@@ -342,6 +362,7 @@ function processDatatype(rawData: any, e: Datatype){
 	if (e.property === undefined){
 		return;
 	}
+	completionProvider.addType(name, e.$.type);
 	e.property.forEach(prop => processProperty(rawData, name, "datatype", prop));
 }
 
