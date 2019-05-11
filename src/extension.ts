@@ -17,16 +17,16 @@ function findRelevantPortion(text: string){
 	if (pos === -1){
 		return null;
 	}
-	let newToken = text.substr(pos + 1, text.length - pos - 1);
+	let newToken = text.substring(pos + 1);
 	if (newToken.endsWith("\"")){
-		newToken = newToken.substr(0, newToken.length - 1);
+		newToken = newToken.substring(0, newToken.length - 1);
 	}
 	let prevPos = Math.max(text.lastIndexOf(".", pos-1),text.lastIndexOf('"', pos-1));
 	// TODO something better
 	if (text.length - pos > 3 && prevPos === -1){
 		return ["", newToken];
 	}
-	let prevToken = text.substr(prevPos + 1, pos-prevPos-1);
+	let prevToken = text.substring(prevPos + 1, pos);
 	return [prevToken, newToken];
 }
 
@@ -60,13 +60,12 @@ class CompletionDict implements vscode.CompletionItemProvider
 	addTypeLiteral(key:string, val:string): void{
 		let k = cleanStr(key);
 		let v = cleanStr(val);
-		// TODO
-		// var entry = this.typeDict.get(k);
-		// if (entry === undefined) {
-		// 	entry = new TypeEntry();
-		// 	this.typeDict.set(k, entry);
-		// }
-		// entry.addLiteral(v);
+		var entry = this.typeDict.get(k);
+		if (entry === undefined) {
+			entry = new TypeEntry();
+			this.typeDict.set(k, entry);
+		}
+		entry.addLiteral(v);
 	}
 
 	addProperty(key:string,prop:string, type?:string): void{
@@ -123,14 +122,15 @@ class CompletionDict implements vscode.CompletionItemProvider
 		} else {
 			completion = propertyName;
 		}
-		let specialPropMatches =propertyName.match(/(?:[^{]*){[$].*}/);
+		let specialPropMatches =propertyName.match(/(?:[^{]*){[$].*}/g);
 		if (specialPropMatches !== null){
 			specialPropMatches.forEach(element => {
 				let start = element.indexOf("$")+1;
 				let end = element.indexOf("}", start);
-				let specialPropertyType = element.substring(start, end-start);
-				// this.addItem(items, prefix+"{"+specialPropertyType+".");
-				// return;
+				let specialPropertyType = element.substring(start, end);
+				let newStr =  completion.replace(element, "{"+specialPropertyType+".}")
+				this.addItem(items, newStr);
+				return;
 			});
 		} else {
 			this.addItem(items, completion, typeName +"."+propertyName);
@@ -150,14 +150,15 @@ class CompletionDict implements vscode.CompletionItemProvider
 		if (entry === undefined){
 			return;
 		}
-		if (depth > -1 && prefix !==""){
-			this.addItem(items, typeName);
-		}
-		if (depth > 0){
+		if (depth > 1){
 			if (exceedinglyVerbose){
 				console.log("\t\tMax depth reached, returning");
 			}
 			return;
+		}
+
+		if (depth > -1 && prefix !==""){
+			this.addItem(items, typeName);
 		}
 
 		if (items.size > 1000){
@@ -174,7 +175,7 @@ class CompletionDict implements vscode.CompletionItemProvider
 			if (exceedinglyVerbose){
 				console.log("Recursing on supertype: ", entry.supertype);
 			}
-			this.buildType(typeName, entry.supertype, items, depth + 1);
+			this.buildType(typeName, entry.supertype, items, depth+1);
 		}
 	}
 	makeCompletionList(items:Map<string,vscode.CompletionItem>):
@@ -184,7 +185,7 @@ class CompletionDict implements vscode.CompletionItemProvider
 
 	provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
 		let items = new Map<string,vscode.CompletionItem>();
-		let prefix= document.lineAt(position).text.substr(0, position.character);
+		let prefix= document.lineAt(position).text.substring(0, position.character);
 		console.log(prefix);
 		let interesting = findRelevantPortion(prefix);
 		if (interesting === null){	
@@ -227,6 +228,26 @@ class CompletionDict implements vscode.CompletionItemProvider
 			}
 			return this.makeCompletionList(items);
 		}
+		// Now check for the special hard to complete onles
+		if (prevToken.startsWith("{")){
+			if (exceedinglyVerbose){
+				console.log("Matching bracketed type");
+			}
+			let token = prevToken.substring(1);
+
+			let entry = this.typeDict.get(token);
+			if (entry === undefined){
+				if (exceedinglyVerbose){
+					console.log("Failed to match bracketed type");
+				}
+			} else {
+				entry.literals.forEach(value =>{
+					this.addItem(items,value+"}");
+				});
+			}
+		}
+
+
 		if (exceedinglyVerbose){
 			console.log("Trying fallback");
 		}
@@ -254,7 +275,7 @@ class LocationDict implements vscode.DefinitionProvider
 	}
 	addLocationForRegexMatch(rawData: string, rawIdx:number, name: string){
 		// make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
-		let line = rawData.substr(0, rawIdx).split(/\r\n|\r|\n/).length-1;
+		let line = rawData.substring(0, rawIdx).split(/\r\n|\r|\n/).length-1;
 		let startIdx = Math.max(rawData.lastIndexOf("\n", rawIdx),rawData.lastIndexOf("\r", rawIdx));
 		let start = new vscode.Position(line, rawIdx - startIdx);
 		let endIdx = rawData.indexOf(">", rawIdx)+2;
@@ -293,7 +314,7 @@ class LocationDict implements vscode.DefinitionProvider
 		} else {
 			end = Math.min(endA, endB);
 		}
-		let interesting = line.substr(start+1, end-start-1);
+		let interesting = line.substring(start+1, end);
 		if (exceedinglyVerbose) {
 			console.log("Token:",interesting);
 		}
@@ -418,7 +439,7 @@ function processKeywordImport(name:string, src: string, select:string, targetNam
 
 		var matches = xpath.find(result, select+"/"+targetName);
 		matches.forEach((element:XPathResult) => {
-			completionProvider.addTypeLiteral(name,element.$[targetName.substr(1)]);
+			completionProvider.addTypeLiteral(name,element.$[targetName.substring(1)]);
 		});
 	});
 }
