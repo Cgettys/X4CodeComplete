@@ -1,22 +1,29 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { print } from 'util';
+import { print, TextDecoder } from 'util';
 var fs = require('fs');
 var parser = require('xml2js');
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 var exceedinglyVerbose: boolean = false;
+var rootpath: string;
+var scriptPropertiesPath: string;
 interface CompletionDict
 {
     [key: string]: Set<string>;
 }
+interface LocationDict
+{
+	[key: string]: vscode.Location;
+}
 
+let completionDict: CompletionDict = {};
+let locationDict: LocationDict = {};
 function readScriptProperties(filepath: string){
-	let unique: CompletionDict = {};
 	console.log("Attempting to read scriptproperties.xml");
 	// Can't move on until we do this so use sync version
-	let rawData = fs.readFileSync(filepath);
+	let rawData = fs.readFileSync(filepath).toString();
 	parser.parseString(rawData, function (err: any, result:any) {
 		if (err !== null){
 			vscode.window.showErrorMessage("Error during parsing of scriptproperties.xml:" + err);
@@ -24,30 +31,30 @@ function readScriptProperties(filepath: string){
 
 		let keywords = result["scriptproperties"]["keyword"];
 		for (let i = 0; i < keywords.length; i++) {
-			processKeyword(unique, keywords[i]);
+			processKeyword(rawData, keywords[i]);
 		}
 
 		let datatypes = result["scriptproperties"]["datatype"];
 		for (let j = 0; j < datatypes.length; j++) {
-			processDatatype(unique, datatypes[j]);
+			processDatatype(rawData, datatypes[j]);
 		}
-		addToSet(unique, "boolean","==true");
-		addToSet(unique, "boolean","==false");
+		addToSet("boolean","==true");
+		addToSet("boolean","==false");
 		console.log("Parsed scriptproperties.xml");
 	});
-	return unique;
+	return completionDict;
 }
 
-function addToSet(unique: CompletionDict, key:string, val:string){
+function addToSet(key:string, val:string){
     let k = cleanStr(key);
     let v = cleanStr(val);
     if (v in ["integer", "string", "float", ""]){
         return;
 	}
-    if (!(key in unique)) {
-        unique[k] = new Set<string>();
+    if (!(key in completionDict)) {
+        completionDict[k] = new Set<string>();
 	} 
-	unique[k].add(v);
+	completionDict[k].add(v);
 }
 
 function cleanStr(val: string){
@@ -61,12 +68,40 @@ interface ScriptProperty {
 		type: string;
 	};
 }
+function addToLocationDict(name: string, file: string, start: vscode.Position, end: vscode.Position){
+	let range = new vscode.Range(start, end);
+	let uri = vscode.Uri.parse("file://"+file);
+	locationDict[name] = new vscode.Location(uri, range);
+}
 
-function processProperty(unique: CompletionDict, parent: string, prop:ScriptProperty){
+function determineLocation(rawData: string,name: string, tagType: string){
+	let rawIdx = rawData.search("<"+tagType+" name=\""+ name+"\""+"[^>]*>");
+	// make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
+	let line = rawData.substr(0, rawIdx).split(/\r\n|\r|\n/).length-1;
+	let startIdx = Math.max(rawData.lastIndexOf("\n", rawIdx),rawData.lastIndexOf("\r", rawIdx));
+	let start = new vscode.Position(line, rawIdx - startIdx);
+	let endIdx = rawData.indexOf(">", rawIdx)+2;
+	let end = new vscode.Position(line, endIdx - rawIdx);
+	addToLocationDict(name, scriptPropertiesPath, start, end);
+}
+function determinePropertyLocation(rawData: string, name:string, parent: string, parentType: string){
+	let rawIdx = rawData.search("(?:<"+parentType+" name=\""+ parent+"\""+"[^>]*>.*)(<property name =\""+name+"\"[^>]*>)");
+	// make sure we don't care about platform & still count right https://stackoverflow.com/a/8488787
+	let line = rawData.substr(0, rawIdx).split(/\r\n|\r|\n/).length-1;
+	let startIdx = Math.max(rawData.lastIndexOf("\n", rawIdx),rawData.lastIndexOf("\r", rawIdx));
+	let start = new vscode.Position(line, rawIdx - startIdx);
+	let endIdx = rawData.indexOf(">", rawIdx)+2;
+	let end = new vscode.Position(line, endIdx - rawIdx);
+	addToLocationDict(parent+"."+name, scriptPropertiesPath, start, end);
+}
+
+function processProperty(rawData: string, parent: string, parentType:string, prop:ScriptProperty){
+	let name = prop.$.name;
 	if (exceedinglyVerbose){
-		console.log("\tProperty read: ", prop.$.name);
+		console.log("\tProperty read: ", name);
 	}
-	let splits = prop.$.name.split(".");
+	determinePropertyLocation(rawData,name,parent, parentType);
+	let splits = name.split(".");
 	var last: string = parent;
 	for (let i = 0; i < splits.length; i ++){
 		let namePart = splits[i];
@@ -74,13 +109,13 @@ function processProperty(unique: CompletionDict, parent: string, prop:ScriptProp
 			if (exceedinglyVerbose){
 				console.log("\t\tPoorly handled for now: ", namePart);
 			}
-			addToSet(unique, last, namePart);
+			addToSet(last, namePart);
 			last = namePart;
 		} else {
 			if (exceedinglyVerbose){
 				console.log("\t\tEntry:"+last + ", "+ namePart);
 			}
-			addToSet(unique, last, namePart);
+			addToSet(last, namePart);
 			last = namePart;
 		}
 	}
@@ -95,15 +130,16 @@ interface Keyword{
 	property?:[ScriptProperty];
 }
 
-function processKeyword(unique: CompletionDict, e: Keyword){
+function processKeyword(rawData: string, e: Keyword){
 	let name = e.$.name;
+	determineLocation(rawData,name, "keyword");
 	if (exceedinglyVerbose){
 		console.log("Keyword read: " + name);
 	}
 	if (e.property === undefined){
 		return;
 	}
-	e.property.forEach(prop => processProperty(unique, name, prop));
+	e.property.forEach(prop => processProperty(rawData, name, "keyword", prop));
 }
 
 interface Datatype {
@@ -113,55 +149,57 @@ interface Datatype {
 	};
 	property?:[ScriptProperty];
 }
-function processDatatype(unique: CompletionDict, e: Datatype){
+function processDatatype(rawData: any, e: Datatype){
 	let name = e.$.name;
+	determineLocation(rawData,name, "datatype");
 	if (exceedinglyVerbose)	{
 		console.log("Datatype read: " + name);
 	}
 	if (e.property === undefined){
 		return;
 	}
-	e.property.forEach(prop => processProperty(unique, name, prop));
+	e.property.forEach(prop => processProperty(rawData, name, "datatype", prop));
 }
 
-function buildResultsIfMatches(prevToken:string, newToken: string, key:string, data:CompletionDict, items: vscode.CompletionItem[]) {
+function buildResultsIfMatches(prevToken:string, newToken: string, key:string, items: vscode.CompletionItem[]) {
     // convenience method to hide the ugliness
     if (!key.startsWith(newToken)) {
         return;
     }
-    buildResults(data, prevToken, key, items, 0);
+    buildResults(prevToken, key, items, 0);
 }
 
-function buildResults(data: CompletionDict, last:string, complete: string, items:vscode.CompletionItem[], depth:number){
+function buildResults(last:string, complete: string, items:vscode.CompletionItem[], depth:number){
 
 	if (exceedinglyVerbose){
 		console.log("\tBuilding results for: ", complete, "depth: ",depth, "last: ", last);
 	}
-	addItem(items, last, complete);
-	if (complete === "" && depth > 0){
+	if (complete === ""){
 		return;
 	} 
+
+	addItem(items, last, complete);
 	if (depth > 3){
 		return;
 	}
 
-	if (!(last in data)){
-		for (const possiblePartial in data) {
+	if (!(last in completionDict)){
+		for (const possiblePartial in completionDict) {
 			if (possiblePartial.indexOf(last)>-1 && possiblePartial !== last){
 				let nextComplete = complete+"."+possiblePartial;
 				if (nextComplete !== ""){
 					addItem(items, last, nextComplete);
 				}
-				buildResults(data, nextComplete,nextComplete, items, depth+1);
+				buildResults(nextComplete,nextComplete, items, depth+1);
 			}
 		}
 		addItem(items, last, complete);
 		return;
 	}
-	let nexts = (data as any)[last];
+	let nexts = (completionDict as any)[last];
 	for (const next in nexts) {
 		let nextComplete = complete+"."+nexts[next];
-		buildResults(data, next,nextComplete, items, depth+1);
+		buildResults(next,nextComplete, items, depth+1);
 	}
 }
 
@@ -183,7 +221,7 @@ function findRelevantPortion(text: string){
 	if (text.length - pos > 3 && prevPos === -1){
 		return ["", newToken];
 	}
-	let prevToken = text.substr(prevPos + 1, pos-1);
+	let prevToken = text.substr(prevPos + 1, pos-prevPos-1);
 	return [prevToken, newToken];
 }
 
@@ -198,16 +236,17 @@ export function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 
-	let filepath = config["scriptPropertiesLocation"];
+	rootpath = config["unpackedFileLocation"];
 	// really, typescript??? really?? https://stackoverflow.com/a/16215800
-	if (filepath === "") {
-		vscode.window.showErrorMessage("You must configure the path to scriptproperties.xml! Do so & restart VS Code!");
+	if (rootpath === "") {
+		vscode.window.showErrorMessage("You must configure the path to unpacked files! Do so & restart VS Code!");
 		return;
 	}
 	exceedinglyVerbose = config["exceedinglyVerbose"];
-	let data: CompletionDict = readScriptProperties(filepath);
+	scriptPropertiesPath = rootpath + "/libraries/scriptproperties.xml";
+	readScriptProperties(scriptPropertiesPath);
 	let sel: vscode.DocumentSelector = { language: 'xml' };
-	let provider: vscode.CompletionItemProvider = {
+	let completeProvider: vscode.CompletionItemProvider = {
 		provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
 
 			// get all text until the `position` and check if it reads `console.`
@@ -225,19 +264,19 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			let prevToken = interesting[0];
 			let newToken = interesting[1];
-			if (exceedinglyVerbose){
+					if (exceedinglyVerbose){
 				console.log("Previous token: ",interesting[0], " New token: ",interesting[1]);
 			}
 			// If we have a previous token & it's in the dictionary, only use that's entries
 			if (prevToken !== ""){
-				if (!(prevToken in data)) {
+				if (!(prevToken in completionDict)) {
 					if (exceedinglyVerbose){
 						console.log("Missing previous token!");
 					}
 				} else {
-					let possibilities =  data[prevToken];
+					let possibilities =  completionDict[prevToken];
 					possibilities.forEach( possibleMatch => {
-						buildResultsIfMatches(prevToken,newToken, possibleMatch, data, items,);
+						buildResultsIfMatches(prevToken,newToken, possibleMatch, items);
 					});
 					return new vscode.CompletionList(items,true);
 				}
@@ -248,9 +287,9 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			// Otherwise fall back to looking at keys of the dictionary for the new string
-			for (const key in data) {
+			for (const key in completionDict) {
 				if (key.startsWith(newToken)) {
-					buildResultsIfMatches(prevToken,newToken, key, data, items);
+					buildResultsIfMatches(prevToken,newToken, key, items);
 				}
 			}
 
@@ -258,9 +297,49 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	};
 	
-	let disposable = vscode.languages.registerCompletionItemProvider(sel,provider,".","\"");
+	let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel,completeProvider,".","\"");
 
-	context.subscriptions.push(disposable);
+	context.subscriptions.push(disposableCompleteProvider);
+
+	let definitionProvider: vscode.DefinitionProvider = {
+		provideDefinition(document: vscode.TextDocument, position: vscode.Position){
+			let line = document.lineAt(position).text;
+			let start = Math.max(line.lastIndexOf("\"",position.character), line.lastIndexOf(".",position.character));
+			let endA =  line.indexOf(".",position.character);
+			let endB = line.indexOf("\"",position.character);
+			var end;
+			if (endA === -1 && endB === -1){
+				end = -1;
+			} else if (endA !== -1){
+				end = endA;
+			} else if (endB !== -1){
+				end = endB;
+			} else {
+				end = Math.min(endA, endB);
+			}
+			let interesting = line.substr(start+1, end-start-1);
+			if (exceedinglyVerbose) {
+				console.log("Token:",interesting);
+			}
+			if (interesting in locationDict){
+				return locationDict[interesting];
+			}
+			// TODO combine this logic with similar used elsewhere
+			if (endA !== -1){
+				let parts = findRelevantPortion(line);
+				console.log(parts);
+				if (parts !== null){
+					let key = parts[0] + "." +parts[1];
+					if (key in locationDict){
+						return locationDict[key];
+					}
+				}
+			}
+			return undefined;
+		}
+	};
+	let disposableDefinitionProvider = vscode.languages.registerDefinitionProvider(sel, definitionProvider);
+	context.subscriptions.push(disposableDefinitionProvider);
 }
 
 // this method is called when your extension is deactivated

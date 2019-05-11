@@ -24,15 +24,10 @@
       "type": "object",
       "title": "X4 Code Complete Settings",
       "properties": {
-        "x4CodeComplete.scriptPropertiesLocation": {
+        "x4CodeComplete.unpackedFileLocation": {
           "type": "string",
           "default": "",
-          "description": "Specifies the path to your local copy of scriptproperties.xml. Required for the plugin to work."
-        },
-        "x4CodeComplete.minimumNumberOfCharacters": {
-          "type": "integer",
-          "default": 3,
-          "description": "Minimum number of characters to attempt autocomplete"
+          "description": "Specifies the path to your unpacked files. Required for the plugin to work."
         },
         "x4CodeComplete.exceedinglyVerbose": {
           "type": "boolean",
