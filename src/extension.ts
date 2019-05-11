@@ -5,6 +5,7 @@ import { print, TextDecoder } from 'util';
 import { type } from 'os';
 var fs = require('fs');
 var parser = require('xml2js');
+var xpath = require("xml2js-xpath");
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 var exceedinglyVerbose: boolean = false;
@@ -32,8 +33,12 @@ function findRelevantPortion(text: string){
 class TypeEntry {
 	properties:Map<string, string> = new Map<string, string>();
 	supertype?:string;
+	literals: Set<string>= new Set<string>();
 	addProperty(value:string, type:string=""){
 		this.properties.set(value, type);
+	}
+	addLiteral(value: string){
+		this.literals.add(value);
 	}
 }
 
@@ -47,18 +52,21 @@ class CompletionDict implements vscode.CompletionItemProvider
 			entry = new TypeEntry();
 			this.typeDict.set(k, entry);
 		}
-		entry.supertype=supertype;
+		if (supertype !== "datatype"){
+			entry.supertype=supertype;
+		}
 	}
 
 	addTypeLiteral(key:string, val:string): void{
 		let k = cleanStr(key);
 		let v = cleanStr(val);
-		var entry = this.typeDict.get(k);
-		if (entry === undefined) {
-			entry = new TypeEntry();
-			this.typeDict.set(k, entry);
-		}
-		entry.addProperty(v);
+		// TODO
+		// var entry = this.typeDict.get(k);
+		// if (entry === undefined) {
+		// 	entry = new TypeEntry();
+		// 	this.typeDict.set(k, entry);
+		// }
+		// entry.addLiteral(v);
 	}
 
 	addProperty(key:string,prop:string, type?:string): void{
@@ -73,9 +81,10 @@ class CompletionDict implements vscode.CompletionItemProvider
 
 
 	addItem(items: Map<string,vscode.CompletionItem>, complete:string, info?:string): void{
-		if (complete === ""){
+		// TODO handle better
+		if (["","boolean","int","string","list","datatype"].indexOf(complete)>-1){
 			return;
-		}	
+		} 
 
 		if (items.has(complete)){
 			if (exceedinglyVerbose){
@@ -83,54 +92,80 @@ class CompletionDict implements vscode.CompletionItemProvider
 			}
 			return;
 		}
-		if (exceedinglyVerbose){
-			console.log("\t\tAdded completion: "+complete);
-		}
+
 		
 		let result = new vscode.CompletionItem(complete);
 		if (info !== undefined){
-			result.detail = info+"."+complete;
+			result.detail = info;
 		} else {
 			result.detail = complete;
+		}
+		if (exceedinglyVerbose){
+			console.log("\t\tAdded completion: "+complete+" info: "+result.detail);
 		}
 		items.set(complete, result);
 	}		
 	buildProperty(prefix:string, typeName: string, propertyName: string, propertyType:string, items: Map<string,vscode.CompletionItem>, depth:number){
+		// TODO handle better
+		if (["","boolean","int","string","list","datatype"].indexOf(propertyName)>-1){
+			return;
+		} 		
+		// TODO handle better
+		if (["","boolean","int","string","list","datatype"].indexOf(typeName)>-1){
+			return;
+		} 
 		if (exceedinglyVerbose) {
-            console.log("Building Property", typeName+"."+propertyName,"depth: ", depth, "last: ", prefix);
+            console.log("\tBuilding Property", typeName+"."+propertyName,"depth: ", depth, "prefix: ", prefix);
 		}
-		let completion = prefix+"."+propertyName;
-		let specialPropMatches =propertyName.match(/{[$].*}/g)
-		if (specialPropMatches !== null){
-			let specialPropertyType = propertyName.substr(2,propertyName.length-3);
-
+		let completion:string;
+		if (prefix !==""){
+			completion = prefix+"."+cleanStr(propertyName);
 		} else {
-			this.addItem(items, completion);
+			completion = propertyName;
+		}
+		let specialPropMatches =propertyName.match(/(?:[^{]*){[$].*}/);
+		if (specialPropMatches !== null){
+			specialPropMatches.forEach(element => {
+				let start = element.indexOf("$")+1;
+				let end = element.indexOf("}", start);
+				let specialPropertyType = element.substring(start, end-start);
+				// this.addItem(items, prefix+"{"+specialPropertyType+".");
+				// return;
+			});
+		} else {
+			this.addItem(items, completion, typeName +"."+propertyName);
 			this.buildType(completion, propertyType, items, depth+1);
 		}
 	}
+
 	buildType(prefix:string, typeName: string, items: Map<string,vscode.CompletionItem>, depth:number): void{
-	
-		if (exceedinglyVerbose){
-			console.log("\tBuilding results for: ", typeName, "depth: ",depth, "last: ", prefix);
-		}
-		if (typeName === ""){
+		// TODO handle better
+		if (["","boolean","int","string","list","datatype"].indexOf(typeName)>-1){
 			return;
 		} 
+		if (exceedinglyVerbose){
+			console.log("Building Type: ", typeName, "depth: ",depth, "prefix: ", prefix);
+		}
 		let entry = this.typeDict.get(typeName);
 		if (entry === undefined){
 			return;
 		}
-		if (depth > -1){
+		if (depth > -1 && prefix !==""){
 			this.addItem(items, typeName);
 		}
-		if (depth > 1){
+		if (depth > 0){
 			if (exceedinglyVerbose){
 				console.log("\t\tMax depth reached, returning");
 			}
 			return;
 		}
 
+		if (items.size > 1000){
+			if (exceedinglyVerbose){
+				console.log("\t\tMax count reached, returning");
+			}
+			return;
+		}
 	
 		for (const prop of entry.properties.entries()) {
 			this.buildProperty(prefix, typeName, prop[0],prop[1], items, depth+1);
@@ -175,8 +210,12 @@ class CompletionDict implements vscode.CompletionItemProvider
 				if (exceedinglyVerbose){
 					console.log("Matching on type!");
 				}
-				entry.properties.forEach(element => {
-					this.buildType(prevToken+".", element, items, 0);
+				
+				entry.properties.forEach((v, k)=> {
+					if (exceedinglyVerbose){
+						console.log("Top level property: ", k, v);
+					}
+					this.buildProperty("",prevToken,k, v, items, 0);
 				});
 				return this.makeCompletionList(items);
 			}
@@ -196,7 +235,7 @@ class CompletionDict implements vscode.CompletionItemProvider
 			if (!key.startsWith(newToken)) {
 				continue;
 			}
-			this.buildType(newToken, key, items, 0);
+			this.buildType("", key, items, 0);
 		}
 		return this.makeCompletionList(items);
 	}
@@ -332,6 +371,17 @@ interface Keyword{
 		pseudo?: string;
 	};
 	property?:[ScriptProperty];
+	import?:[{
+		$:{
+			source: string;
+			select: string;
+		}
+		property:[{
+			$:{
+				name: string;
+			}
+		}]
+	}];
 }
 
 function processKeyword(rawData: string, e: Keyword){
@@ -340,11 +390,39 @@ function processKeyword(rawData: string, e: Keyword){
 	if (exceedinglyVerbose){
 		console.log("Keyword read: " + name);
 	}
-	if (e.property === undefined){
-		return;
+
+	if (e.import !== undefined) {
+		let imp = e.import[0];
+		let src =imp.$.source;
+		let select = imp.$.select;
+		let tgtName = imp.property[0].$.name;
+		processKeywordImport(name,src, select, tgtName);
+
+	} else if (e.property !== undefined){
+		e.property.forEach(prop => processProperty(rawData, name, "keyword", prop));
 	}
-	e.property.forEach(prop => processProperty(rawData, name, "keyword", prop));
 }
+
+interface XPathResult{
+	$:{[key:string]: string};
+}
+function processKeywordImport(name:string, src: string, select:string, targetName: string){
+	let path = rootpath+ "libraries/"+src;
+	console.log("Attempting to read: "+src);
+	// Can't move on until we do this so use sync version
+	let rawData = fs.readFileSync(path).toString();
+	parser.parseString(rawData, function (err: any, result:any) {
+		if (err !== null){
+			vscode.window.showErrorMessage("Error during parsing of " + src+ err);
+		}
+
+		var matches = xpath.find(result, select+"/"+targetName);
+		matches.forEach((element:XPathResult) => {
+			completionProvider.addTypeLiteral(name,element.$[targetName.substr(1)]);
+		});
+	});
+}
+
 
 interface Datatype {
 	$:{
@@ -386,11 +464,12 @@ export function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 	exceedinglyVerbose = config["exceedinglyVerbose"];
-	scriptPropertiesPath = rootpath + "/libraries/scriptproperties.xml";
+	scriptPropertiesPath = rootpath + "libraries/scriptproperties.xml";
 	readScriptProperties(scriptPropertiesPath);
+
 	let sel: vscode.DocumentSelector = { language: 'xml' };
 	
-	let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel, completionProvider,".","\"");
+	let disposableCompleteProvider = vscode.languages.registerCompletionItemProvider(sel, completionProvider,".","\"","{");
 
 	context.subscriptions.push(disposableCompleteProvider);
 	

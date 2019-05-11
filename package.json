@@ -52,6 +52,7 @@
     "@types/mocha": "^2.2.42"
   },
   "dependencies": {
-    "xml2js": "^0.4.19"
+    "xml2js": "^0.4.19",
+    "xml2js-xpath": "^0.10.0"
   }
 }
