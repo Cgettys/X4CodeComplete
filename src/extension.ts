@@ -195,19 +195,6 @@ function buildResults(last:string, complete: string, items:vscode.CompletionItem
 		return;
 	}
 
-	if (!(last in completionDict)){
-		for (const possiblePartial in completionDict) {
-			if (possiblePartial.indexOf(last)>-1 && possiblePartial !== last){
-				let nextComplete = complete+"."+possiblePartial;
-				if (nextComplete !== ""){
-					addItem(items, last, nextComplete);
-				}
-				buildResults(nextComplete,nextComplete, items, depth+1);
-			}
-		}
-		addItem(items, last, complete);
-		return;
-	}
 	let nexts = (completionDict as any)[last];
 	for (const next in nexts) {
 		let nextComplete = complete+"."+nexts[next];
