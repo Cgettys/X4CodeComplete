@@ -8,7 +8,7 @@
 		"url":"https://github.com/Cgettys/X4CodeComplete"
 	},
 	"publisher":"CharlieGettys",
-	"license": "GPL-3.0",
+	"license": "MIT",
 	"engines": {
 		"vscode": "^1.33.0"
 	},
@@ -23,7 +23,25 @@
 		"commands": [{
 			"command": "extension.helloWorld",
 			"title": "Hello World"
-		}]
+		}],
+
+		"configuration": {
+			"type": "object",
+			"title": "X4 Code Complete Settings",
+			"properties": {
+				"x4CodeComplete.scriptPropertiesLocation": {
+					"type": "string",
+					"default": "",
+					"description": "Specifies the path to your local copy of scriptproperties.xml. Required for the plugin to work."
+				},				
+				"x4CodeComplete.exceedinglyVerbose": {
+					"type": "boolean",
+					"default": false,
+					"description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else"
+				}
+			}
+		}
+		
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
