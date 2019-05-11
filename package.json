@@ -1,60 +1,63 @@
 {
-	"name": "x4codecomplete",
-	"displayName": "X4CodeComplete",
-	"description": "",
-	"version": "1.0.1",
-	"repository": {
-		"type": "git",
-		"url":"https://github.com/Cgettys/X4CodeComplete"
-	},
-	"publisher":"CharlieGettys",
-	"license": "MIT",
-	"engines": {
-		"vscode": "^1.33.0"
-	},
-	"categories": [
-		"Other"
-	],
-	"activationEvents": [
-		"onLanguage:xml"
-	],
-	"main": "./out/extension.js",
-	"contributes": {
-		"configuration": {
-			"type": "object",
-			"title": "X4 Code Complete Settings",
-			"properties": {
-				"x4CodeComplete.scriptPropertiesLocation": {
-					"type": "string",
-					"default": "",
-					"description": "Specifies the path to your local copy of scriptproperties.xml. Required for the plugin to work."
-				},
-				"x4CodeComplete.minimumNumberOfCharacters":{
-					"type":"integer",
-					"default": 3,
-					"description": "Minimum number of characters to attempt autocomplete"
-				},				
-				"x4CodeComplete.exceedinglyVerbose": {
-					"type": "boolean",
-					"default": false,
-					"description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else"
-				}
-			}
-		}
-		
-	},
-	"scripts": {
-		"vscode:prepublish": "npm run compile",
-		"compile": "tsc -p ./",
-		"watch": "tsc -watch -p ./",
-		"postinstall": "node ./node_modules/vscode/bin/install",
-		"test": "npm run compile && node ./node_modules/vscode/bin/test"
-	},
-	"devDependencies": {
-		"typescript": "^3.3.1",
-		"vscode": "^1.1.28",
-		"tslint": "^5.12.1",
-		"@types/node": "^10.12.21",
-		"@types/mocha": "^2.2.42"
-	}
+  "name": "x4codecomplete",
+  "displayName": "X4CodeComplete",
+  "description": "",
+  "version": "1.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cgettys/X4CodeComplete"
+  },
+  "publisher": "CharlieGettys",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.33.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:xml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "X4 Code Complete Settings",
+      "properties": {
+        "x4CodeComplete.scriptPropertiesLocation": {
+          "type": "string",
+          "default": "",
+          "description": "Specifies the path to your local copy of scriptproperties.xml. Required for the plugin to work."
+        },
+        "x4CodeComplete.minimumNumberOfCharacters": {
+          "type": "integer",
+          "default": 3,
+          "description": "Minimum number of characters to attempt autocomplete"
+        },
+        "x4CodeComplete.exceedinglyVerbose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Spams the log with info on autocomplete options. Useful for development and debugging, and not much else"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "postinstall": "node ./node_modules/vscode/bin/install",
+    "test": "npm run compile && node ./node_modules/vscode/bin/test"
+  },
+  "devDependencies": {
+    "typescript": "^3.3.1",
+    "vscode": "^1.1.28",
+    "tslint": "^5.12.1",
+    "@types/node": "^10.12.21",
+    "@types/mocha": "^2.2.42"
+  },
+  "dependencies": {
+    "xml2js": "^0.4.19",
+    "xml2json": "^0.11.2"
+  }
 }
