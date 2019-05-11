@@ -122,20 +122,21 @@ class CompletionDict implements vscode.CompletionItemProvider
 		} else {
 			completion = propertyName;
 		}
-		let specialPropMatches =propertyName.match(/(?:[^{]*){[$].*}/g);
-		if (specialPropMatches !== null){
-			specialPropMatches.forEach(element => {
-				let start = element.indexOf("$")+1;
-				let end = element.indexOf("}", start);
-				let specialPropertyType = element.substring(start, end);
-				let newStr =  completion.replace(element, "{"+specialPropertyType+".}")
-				this.addItem(items, newStr);
-				return;
-			});
-		} else {
+		// TODO bracket handling
+		// let specialPropMatches =propertyName.match(/(?:[^{]*){[$].*}/g);
+		// if (specialPropMatches !== null){
+		// 	specialPropMatches.forEach(element => {
+		// 		let start = element.indexOf("$")+1;
+		// 		let end = element.indexOf("}", start);
+		// 		let specialPropertyType = element.substring(start, end);
+		// 		let newStr =  completion.replace(element, "{"+specialPropertyType+".}")
+		// 		this.addItem(items, newStr);
+		// 		return;
+		// 	});
+		// } else {
 			this.addItem(items, completion, typeName +"."+propertyName);
 			this.buildType(completion, propertyType, items, depth+1);
-		}
+		// }
 	}
 
 	buildType(prefix:string, typeName: string, items: Map<string,vscode.CompletionItem>, depth:number): void{
@@ -186,7 +187,6 @@ class CompletionDict implements vscode.CompletionItemProvider
 	provideCompletionItems(document: vscode.TextDocument, position: vscode.Position) {
 		let items = new Map<string,vscode.CompletionItem>();
 		let prefix= document.lineAt(position).text.substring(0, position.character);
-		console.log(prefix);
 		let interesting = findRelevantPortion(prefix);
 		if (interesting === null){	
 			if (exceedinglyVerbose){
@@ -207,6 +207,8 @@ class CompletionDict implements vscode.CompletionItemProvider
 				if (exceedinglyVerbose){
 					console.log("Missing previous token!");
 				}
+				// TODO backtrack & search
+				return;
 			} else {
 				if (exceedinglyVerbose){
 					console.log("Matching on type!");
@@ -296,39 +298,20 @@ class LocationDict implements vscode.DefinitionProvider
 			return;
 		}
 		let rawIdx = matches.index + matches[0].indexOf(matches[1]);
-		this.addLocationForRegexMatch(rawData, rawIdx, name);
+		this.addLocationForRegexMatch(rawData, rawIdx, parent+"."+name);
 	}
 
 	provideDefinition(document: vscode.TextDocument, position: vscode.Position){
 		let line = document.lineAt(position).text;
-		let start = Math.max(line.lastIndexOf("\"",position.character), line.lastIndexOf(".",position.character));
-		let endA =  line.indexOf(".",position.character);
-		let endB = line.indexOf("\"",position.character);
-		var end;
-		if (endA === -1 && endB === -1){
-			end = -1;
-		} else if (endA !== -1){
-			end = endA;
-		} else if (endB !== -1){
-			end = endB;
-		} else {
-			end = Math.min(endA, endB);
-		}
-		let interesting = line.substring(start+1, end);
-		if (exceedinglyVerbose) {
-			console.log("Token:",interesting);
-		}
-		if (interesting in this.dict){
-			return this.dict.get(interesting);
-		}
-		// TODO combine this logic with similar used elsewhere
-		// TODO clean this up
-		let parts = findRelevantPortion(line);
-		console.log(parts);
-		if (parts !== null){
-			let key = parts[0] + "." +parts[1];
-			return this.dict.get(key);
-		}
+		let start = line.lastIndexOf("\"", position.character);
+		let end = line.indexOf("\"",position.character);
+		let relevant = line.substring(start, end).trim().replace("\"","");
+		do{
+			if (this.dict.has(relevant)){
+				return this.dict.get(relevant);
+			}
+			relevant = relevant.substring(relevant.indexOf(".")+1);
+		} while (relevant.indexOf(".") !== -1);
 		return undefined;
 	}
 }
@@ -382,7 +365,6 @@ function processProperty(rawData: string, parent: string, parentType:string, pro
 	}
 	definitionProvider.addPropertyLocation(rawData, name, parent, parentType);
 	completionProvider.addProperty(parent, name, prop.$.type);
-			
 }
 
 interface Keyword{
@@ -429,7 +411,7 @@ interface XPathResult{
 }
 function processKeywordImport(name:string, src: string, select:string, targetName: string){
 	let path = rootpath+ "libraries/"+src;
-	console.log("Attempting to read: "+src);
+	console.log("Attempting to import"+src);
 	// Can't move on until we do this so use sync version
 	let rawData = fs.readFileSync(path).toString();
 	parser.parseString(rawData, function (err: any, result:any) {
