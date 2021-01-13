@@ -27,3 +27,6 @@ Initial release. Supports scriptproperties.xml autocomplete
 
 ### 1.0.1
 Major improvements; now has configuration & generates the entries at startup from scriptproperties.xml, removing the need for rerunning a python script when scriptproperties.xml updates.
+
+### 1.0.2
+Hopefully, no more duplicate suggestions. Also, Peek/Go to definition for script properties!
