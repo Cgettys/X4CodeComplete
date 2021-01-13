@@ -1,8 +1,6 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { print, TextDecoder } from 'util';
-import { type } from 'os';
 var fs = require('fs');
 var parser = require('xml2js');
 var xpath = require("xml2js-xpath");
@@ -258,6 +256,7 @@ class CompletionDict implements vscode.CompletionItemProvider
 			if (!key.startsWith(newToken)) {
 				continue;
 			}
+			this.addItem(items, key);
 			this.buildType("", key, items, 0);
 		}
 		return this.makeCompletionList(items);
@@ -411,7 +410,7 @@ interface XPathResult{
 }
 function processKeywordImport(name:string, src: string, select:string, targetName: string){
 	let path = rootpath+ "libraries/"+src;
-	console.log("Attempting to import"+src);
+	console.log("Attempting to import",src);
 	// Can't move on until we do this so use sync version
 	let rawData = fs.readFileSync(path).toString();
 	parser.parseString(rawData, function (err: any, result:any) {
